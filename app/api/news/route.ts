@@ -1,144 +1,33 @@
-import { NextRequest, NextResponse } from 'next/server';
-import Parser from 'rss-parser';
+import { NextResponse } from 'next/server';
+import db from '@/lib/db/sqlite';
+import { isDataFresh } from '@/lib/cache';
+import { fetchAndSaveNews, getStoredNews } from '@/lib/services/news';
 
 export const dynamic = 'force-dynamic';
 
-const parser = new Parser();
+const CACHE_MINUTES = 15;
 
-interface NewsItem {
-  title: string;
-  link: string;
-  pubDate: string;
-  content: string;
-  source: string;
-  category: string;
-}
-
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const newsItems: NewsItem[] = [];
+    // Check the most recent row's created_at (use pubDate as proxy)
+    const latest = db.prepare('SELECT pubDate FROM news ORDER BY id DESC LIMIT 1').get() as
+      | { pubDate: string }
+      | undefined;
 
-    // Fetch BBC News (World News)
-    try {
-      const bbcNews = await fetchBBCNews();
-      newsItems.push(...bbcNews);
-    } catch (error) {
-      console.error('Error fetching BBC News:', error);
+    if (latest && isDataFresh(latest.pubDate, CACHE_MINUTES)) {
+      console.log('[news] Using cached data...');
+      const news = getStoredNews();
+      return NextResponse.json({ count: news.length, news });
     }
 
-    // Fetch TechCrunch (Tech News)
-    try {
-      const techNews = await fetchTechCrunch();
-      newsItems.push(...techNews);
-    } catch (error) {
-      console.error('Error fetching TechCrunch:', error);
-    }
-
-    // Fetch The Verge (Tech News)
-    try {
-      const vergeNews = await fetchTheVerge();
-      newsItems.push(...vergeNews);
-    } catch (error) {
-      console.error('Error fetching The Verge:', error);
-    }
-
-    if (newsItems.length === 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'No news items found from any source.'
-      }, { status: 502 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      count: newsItems.length,
-      data: newsItems,
-      timestamp: new Date().toISOString(),
-    });
+    console.log('[news] Fetching fresh data...');
+    const news = await fetchAndSaveNews();
+    return NextResponse.json({ count: news.length, news });
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('[news] API error:', error);
     return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch news',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: 'Failed to fetch news' },
       { status: 500 }
     );
   }
-}
-
-async function fetchBBCNews(): Promise<NewsItem[]> {
-  const items: NewsItem[] = [];
-
-  try {
-    const feed = await parser.parseURL('https://feeds.bbci.co.uk/news/rss.xml');
-    (feed.items || []).slice(0, 5).forEach((item) => {
-      if (item.title && item.link) {
-        items.push({
-          title: item.title,
-          link: item.link,
-          pubDate: item.pubDate || new Date().toISOString(),
-          content: item.content || item.contentSnippet || '',
-          source: 'BBC',
-          category: 'World News',
-        });
-      }
-    });
-  } catch (error) {
-    console.error('BBC News parsing error:', error);
-    throw error;
-  }
-
-  return items;
-}
-
-async function fetchTechCrunch(): Promise<NewsItem[]> {
-  const items: NewsItem[] = [];
-
-  try {
-    const feed = await parser.parseURL('https://techcrunch.com/feed/');
-    (feed.items || []).slice(0, 5).forEach((item) => {
-      if (item.title && item.link) {
-        items.push({
-          title: item.title,
-          link: item.link,
-          pubDate: item.pubDate || new Date().toISOString(),
-          content: item.content || item.contentSnippet || '',
-          source: 'TechCrunch',
-          category: 'Tech News',
-        });
-      }
-    });
-  } catch (error) {
-    console.error('TechCrunch parsing error:', error);
-    throw error;
-  }
-
-  return items;
-}
-
-async function fetchTheVerge(): Promise<NewsItem[]> {
-  const items: NewsItem[] = [];
-
-  try {
-    const feed = await parser.parseURL('https://www.theverge.com/rss/index.xml');
-    (feed.items || []).slice(0, 5).forEach((item) => {
-      if (item.title && item.link) {
-        items.push({
-          title: item.title,
-          link: item.link,
-          pubDate: item.pubDate || new Date().toISOString(),
-          content: item.content || item.contentSnippet || '',
-          source: 'The Verge',
-          category: 'Tech News',
-        });
-      }
-    });
-  } catch (error) {
-    console.error('The Verge parsing error:', error);
-    throw error;
-  }
-
-  return items;
 }
