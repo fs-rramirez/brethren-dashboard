@@ -1,0 +1,7 @@
+{
+  "claudeChat.agent.env": {
+    "ANTHROPIC_BASE_URL": "https://ai-gateway.fullscale.rocks",
+    "ANTHROPIC_API_KEY": "d8985313023dd09a547af7ddc02e7f58bf43a53982b8de14d86ab8bf7331422a",
+    "ANTHROPIC_MODEL": "claude-fast"
+  }
+}
